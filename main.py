@@ -9,6 +9,8 @@ from mistralai import Client
 from flask import Flask
 from threading import Thread
 
+# ---------------- WEB (Render) ----------------
+
 app = Flask(__name__)
 
 @app.route("/")
@@ -16,23 +18,36 @@ def home():
     return "Bot is running"
 
 def run_web():
-    app.run(host="0.0.0.0", port=10000)
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host="0.0.0.0", port=port)
 
-Thread(target=run_web).start()
+Thread(target=run_web, daemon=True).start()
 
 # ---------------- ENV ----------------
 
 load_dotenv()
 
 TOKEN = os.getenv("DISCORD_TOKEN")
-ai = Client(api_key=MISTRAL_API_KEY)
+MISTRAL_API_KEY = os.getenv("MISTRAL_API_KEY")
 
 if not TOKEN:
-    raise Exception("❌ DISCORD_TOKEN manquant")
-if not MISTRAL_API_KEY:
-    raise Exception("❌ MISTRAL_API_KEY manquante")
+    raise Exception("DISCORD_TOKEN manquant")
 
-ai = Mistral(api_key=MISTRAL_API_KEY)
+if not MISTRAL_API_KEY:
+    raise Exception("MISTRAL_API_KEY manquante")
+
+# ---------------- MISTRAL ----------------
+
+ai = Client(api_key=MISTRAL_API_KEY)
+
+# ---------------- BOT ----------------
+
+intents = discord.Intents.all()
+
+bot = commands.Bot(
+    command_prefix="!",
+    intents=intents
+)
 
 # ---------------- BOT ----------------
 
