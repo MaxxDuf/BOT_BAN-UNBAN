@@ -5,7 +5,7 @@ import json
 import random
 import asyncio
 from dotenv import load_dotenv
-from mistralai import Mistral
+from mistralai import Client
 from flask import Flask
 from threading import Thread
 
@@ -25,7 +25,7 @@ Thread(target=run_web).start()
 load_dotenv()
 
 TOKEN = os.getenv("DISCORD_TOKEN")
-MISTRAL_API_KEY = os.getenv("MISTRAL_API_KEY")
+ai = Client(api_key=MISTRAL_API_KEY)
 
 if not TOKEN:
     raise Exception("❌ DISCORD_TOKEN manquant")
