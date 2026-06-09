@@ -4,12 +4,11 @@ import os
 import json
 import random
 import asyncio
-import httpx
 from dotenv import load_dotenv
 from flask import Flask
 from threading import Thread
 
-# ---------------- WEB (Render keep alive) ----------------
+# ---------------- WEB (Render) ----------------
 
 app = Flask(__name__)
 
@@ -28,13 +27,9 @@ Thread(target=run_web, daemon=True).start()
 load_dotenv()
 
 TOKEN = os.getenv("DISCORD_TOKEN")
-MISTRAL_API_KEY = os.getenv("MISTRAL_API_KEY")
 
 if not TOKEN:
     raise Exception("DISCORD_TOKEN manquant")
-
-if not MISTRAL_API_KEY:
-    raise Exception("MISTRAL_API_KEY manquante")
 
 # ---------------- BOT ----------------
 
@@ -63,39 +58,6 @@ def save():
 
 data = load()
 
-# ---------------- IA MISTRAL (FIX STABLE) ----------------
-
-def get_score(text: str) -> int:
-    try:
-        r = httpx.post(
-            "https://api.mistral.ai/v1/chat/completions",
-            headers={
-                "Authorization": f"Bearer {MISTRAL_API_KEY}",
-                "Content-Type": "application/json"
-            },
-            json={
-                "model": "mistral-small-latest",
-                "messages": [
-                    {
-                        "role": "system",
-                        "content": "Note cette lettre d'excuse de 0 à 10. Réponds uniquement avec un chiffre."
-                    },
-                    {
-                        "role": "user",
-                        "content": text
-                    }
-                ]
-            },
-            timeout=30
-        )
-
-        data = r.json()
-        return int(data["choices"][0]["message"]["content"].strip())
-
-    except Exception as e:
-        print("IA ERROR:", e)
-        return 0
-
 # ---------------- BAN TICKET ----------------
 
 @bot.command()
@@ -111,8 +73,7 @@ async def banticket(ctx, user_id: int):
         "thread_id": None,
         "status": "new",
         "used": False,
-        "letter": None,
-        "score": None
+        "letter": None
     }
 
     save()
@@ -128,7 +89,7 @@ async def banticket(ctx, user_id: int):
 
     await ctx.send(f"🎫 Ticket créé : {ticket_id}")
 
-# ---------------- APPEAL THREAD ----------------
+# ---------------- APPEAL ----------------
 
 @bot.command()
 async def appeal(ctx, ticket_id: str):
@@ -153,7 +114,7 @@ async def appeal(ctx, ticket_id: str):
     t["status"] = "writing"
     save()
 
-    await thread.send("✍️ Écris ta lettre ici.")
+    await thread.send("✍️ Écris ta lettre ici. Elle sera envoyée aux admins automatiquement.")
 
 # ---------------- MESSAGE HANDLER ----------------
 
@@ -173,28 +134,8 @@ async def on_message(message):
                 return
 
             text = message.content
-            score = get_score(text)
 
             t["letter"] = text
-            t["score"] = score
-            save()
-
-            await message.channel.send(f"🤖 IA Mistral : **{score}/10**")
-
-            # 🔴 REFUS AUTO (0-7)
-            if score < 8:
-
-                t["used"] = True
-                t["status"] = "auto_refused"
-                save()
-
-                await message.channel.send("❌ Refus automatique.")
-
-                await asyncio.sleep(10)
-                await message.channel.delete()
-                return
-
-            # 🟢 ENVOI ADMINS (8-10)
             t["status"] = "pending_admin"
             save()
 
@@ -204,17 +145,19 @@ async def on_message(message):
                 await report.send(
                     f"📤 LETTRE À TRAITER\n"
                     f"🎫 ID: {ticket_id}\n"
-                    f"🤖 Score: {score}/10\n"
-                    f"📝 {text[:1000]}"
+                    f"📝 {text[:1500]}"
                 )
 
-            await message.channel.send("📤 Envoyé aux admins.")
+            await message.channel.send("📤 Lettre envoyée aux admins.")
+
             break
 
-# ---------------- ADMIN COMMANDS ----------------
+# ---------------- ADMIN CHECK ----------------
 
 def is_admin(ctx):
     return ctx.author.guild_permissions.administrator
+
+# ---------------- ACCEPT ----------------
 
 @bot.command()
 async def oui(ctx, ticket_id: str):
@@ -232,11 +175,13 @@ async def oui(ctx, ticket_id: str):
 
     await ctx.send("✔ Déban accepté")
 
-    if t["thread_id"]:
+    if t.get("thread_id"):
         ch = await bot.fetch_channel(t["thread_id"])
-        await ch.send("✅ Accepté")
+        await ch.send("✅ Lettre acceptée, déban en cours...")
         await asyncio.sleep(10)
         await ch.delete()
+
+# ---------------- REFUSE ----------------
 
 @bot.command()
 async def non(ctx, ticket_id: str):
@@ -254,9 +199,9 @@ async def non(ctx, ticket_id: str):
 
     await ctx.send("❌ Refus")
 
-    if t["thread_id"]:
+    if t.get("thread_id"):
         ch = await bot.fetch_channel(t["thread_id"])
-        await ch.send("❌ Refusé")
+        await ch.send("❌ Lettre refusée.")
         await asyncio.sleep(10)
         await ch.delete()
 
