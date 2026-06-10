@@ -89,9 +89,10 @@ async def ban2(ctx, user_id: int):
         await user.send(
             f"🚫 TU AS ÉTÉ BANNI\n\n"
             f"📌 Raison : {reason}\n"
-            f"⏳ Durée : {duration}\n"
-            f"🎫 Ticket : {ticket_id}\n\n"
-            f"Commande : !appeal {ticket_id}"
+            f"📅 Durée : {duration}\n"
+            f"📩 Ticket : {ticket_id}\n\n"
+            f"Si tu trouve le désision inapseptable rejoint ce serveur https://discord.gg/NsbWYCD4 et utilise la commande suivante"
+            f"Commande : !appel {ticket_id}"
         )
     except discord.Forbidden:
         mp_ok = False
@@ -125,7 +126,7 @@ async def ban2(ctx, user_id: int):
 # ---------------- APPEAL ----------------
 
 @bot.command()
-async def appeal(ctx, ticket_id: str):
+async def appel(ctx, ticket_id: str):
 
     if ticket_id not in data:
         return await ctx.send("❌ Ticket invalide.")
