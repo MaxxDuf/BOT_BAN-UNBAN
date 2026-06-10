@@ -104,18 +104,40 @@ async def ban2(ctx, user_id: int):
 
     save()
 
-    # ---------------- DM SAFE ----------------
-    try:
-        await user.send(
-            f"🚫 Tu as été banni\n"
-            f"📌 Raison : {reason}\n"
-            f"⏳ Durée : {duration}\n"
-            f"🎫 Ticket : {ticket_id}\n"
-            f"Commande : !appeal {ticket_id}"
-        )
-        await ctx.send(f"✔ Ban + MP envoyé. Ticket : {ticket_id}")
-    except discord.Forbidden:
-        await ctx.send(f"✔ Ban effectué MAIS MP bloqué. Ticket : {ticket_id}")
+# ---------------- DM FIX (IMPORTANT) ----------------
+
+dm_sent = False
+
+try:
+    member = ctx.guild.get_member(user_id)
+
+    if member is None:
+        member = await ctx.guild.fetch_member(user_id)
+
+    await member.send(
+        f"🚫 Tu as été banni\n"
+        f"📌 Raison : {reason}\n"
+        f"⏳ Durée : {duration}\n"
+        f"🎫 Ticket : {ticket_id}\n"
+        f"Commande : !appeal {ticket_id}"
+    )
+
+    dm_sent = True
+
+except discord.Forbidden:
+    dm_sent = False
+
+except Exception:
+    dm_sent = False
+
+# ---------------- MESSAGE FINAL ----------------
+
+if dm_sent:
+    await ctx.send(f"✔ Ban + MP envoyé. Ticket : {ticket_id}")
+else:
+    await ctx.send(
+        f"✔ Ban effectué MAIS MP impossible (bloqué par l’utilisateur). Ticket : {ticket_id}"
+    )
 
 # ---------------- APPEAL ----------------
 @bot.command()
