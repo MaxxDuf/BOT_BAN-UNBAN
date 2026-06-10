@@ -191,6 +191,21 @@ async def on_message(message):
 
         save()
 
+        # 🔥 ENVOI DANS LE SALON ADMIN
+        channel = bot.get_channel(1513856898129068042)
+
+        if channel:
+            await channel.send(
+                f"📩 **Nouvelle lettre d'excuse**\n\n"
+                f"🎫 Ticket : {ticket_id}\n"
+                f"👤 User ID : {t['user_id']}\n"
+                f"📌 Raison : {t['reason']}\n"
+                f"⏳ Durée : {t['duration']}\n\n"
+                f"📝 Lettre :\n{message.content}"
+            )
+        else:
+            print("Salon introuvable")
+
         await message.channel.send("📤 Lettre envoyée aux admins.")
         break
 
