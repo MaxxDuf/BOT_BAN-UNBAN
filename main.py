@@ -1,16 +1,13 @@
 import discord
-from discord.ext import commands, tasks
+from discord.ext import commands
 import os
 import json
 import random
-import asyncio
 from dotenv import load_dotenv
-from datetime import datetime, timedelta
-
-# ---------------- WEB SERVER (RENDER FIX) ----------------
-
 from flask import Flask
 from threading import Thread
+
+# ---------------- WEB SERVER (RENDER FIX) ----------------
 
 app = Flask(__name__)
 
@@ -46,12 +43,12 @@ DATA_FILE = "tickets.json"
 
 def load():
     if os.path.exists(DATA_FILE):
-        with open(DATA_FILE, "r") as f:
+        with open(DATA_FILE, "r", encoding="utf-8") as f:
             return json.load(f)
     return {}
 
 def save():
-    with open(DATA_FILE, "w") as f:
+    with open(DATA_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=4)
 
 data = load()
@@ -82,48 +79,48 @@ async def ban2(ctx, user_id: int):
 
     ticket_id = str(random.randint(10000, 99999))
 
-    # ---------------- MP AVANT BAN ----------------
-
+    # MP AVANT BAN
     mp_ok = True
+
     try:
         await user.send(
             f"🚫 TU AS ÉTÉ BANNI\n\n"
             f"📌 Raison : {reason}\n"
             f"📅 Durée : {duration}\n"
-            f"📩 Ticket : {ticket_id}\n\n"
-            f"Si tu trouve le désision inapseptable rejoint ce serveur https://discord.gg/NsbWYCD4 et utilise la commande suivante"
+            f"🎫 Ticket : {ticket_id}\n\n"
+            f"Rejoins le serveur d'appel : https://discord.gg/NsbWYCD4\n"
             f"Commande : !appel {ticket_id}"
         )
     except discord.Forbidden:
         mp_ok = False
-        await ctx.send("⚠️ MP bloqué")
-    except:
+        await ctx.send("⚠️ MP bloqué.")
+    except Exception:
         mp_ok = False
-        await ctx.send("⚠️ Impossible d'envoyer le MP")
+        await ctx.send("⚠️ Impossible d'envoyer le MP.")
 
-    # ---------------- BAN ----------------
-
+    # BAN
     try:
         member = await ctx.guild.fetch_member(user_id)
         await member.ban(reason=reason)
-    except:
+    except Exception:
         pass
-
-    # ---------------- SAVE ----------------
 
     data[ticket_id] = {
         "user_id": user_id,
         "reason": reason,
         "duration": duration,
         "status": "banned",
-        "mp_sent": mp_ok
+        "mp_sent": mp_ok,
+        "thread_id": None,
+        "used": False,
+        "letter": None
     }
 
     save()
 
     await ctx.send(f"✔ Ban effectué. Ticket : {ticket_id}")
 
-# ---------------- APPEAL ----------------
+# ---------------- APPEL ----------------
 
 @bot.command()
 async def appel(ctx, ticket_id: str):
@@ -133,13 +130,19 @@ async def appel(ctx, ticket_id: str):
 
     t = data[ticket_id]
 
-    if t.get("thread_id"):
-        return await ctx.send("❌ Déjà ouvert.")
+    if t.get("thread_id") is not None:
+        return await ctx.send("❌ Ticket déjà ouvert.")
 
-    thread = await ctx.channel.create_thread(
-        name=f"appeal-{ticket_id}",
-        auto_archive_duration=1440
-    )
+    try:
+        thread = await ctx.channel.create_thread(
+            name=f"appeal-{ticket_id}",
+            auto_archive_duration=1440
+        )
+    except Exception as e:
+        print("Erreur création thread :", e)
+        return await ctx.send(
+            "❌ Impossible de créer le fil de discussion."
+        )
 
     t["thread_id"] = thread.id
     t["status"] = "writing"
@@ -147,7 +150,13 @@ async def appel(ctx, ticket_id: str):
 
     save()
 
-    await thread.send("✍️ Écris ta lettre ici. Elle sera envoyée aux admins.")
+    await thread.send(
+        f"🎫 Ticket {ticket_id}\n\n"
+        "✍️ Écris ta lettre ici.\n"
+        "Elle sera envoyée aux admins."
+    )
+
+    await ctx.send(f"✅ Fil créé : {thread.mention}")
 
 # ---------------- MESSAGE HANDLER ----------------
 
@@ -159,7 +168,7 @@ async def on_message(message):
     if message.author.bot:
         return
 
-    for ticket_id, t in list(data.items()):
+    for ticket_id, t in data.items():
 
         if t.get("thread_id") != message.channel.id:
             continue
@@ -173,17 +182,16 @@ async def on_message(message):
         t["letter"] = message.content
         t["status"] = "pending_admin"
         t["used"] = True
+
         save()
 
         await message.channel.send("📤 Lettre envoyée aux admins.")
         break
 
-# ---------------- ADMIN CHECK ----------------
+# ---------------- ADMIN ----------------
 
 def is_admin(ctx):
     return ctx.author.guild_permissions.administrator
-
-# ---------------- ACCEPT ----------------
 
 @bot.command()
 async def oui(ctx, ticket_id: str):
@@ -192,16 +200,16 @@ async def oui(ctx, ticket_id: str):
         return
 
     t = data.get(ticket_id)
+
     if not t:
         return await ctx.send("❌ Introuvable.")
 
     t["status"] = "accepted"
     t["used"] = True
+
     save()
 
     await ctx.send("✔ Accepté")
-
-# ---------------- REFUSE ----------------
 
 @bot.command()
 async def non(ctx, ticket_id: str):
@@ -210,15 +218,19 @@ async def non(ctx, ticket_id: str):
         return
 
     t = data.get(ticket_id)
+
     if not t:
         return await ctx.send("❌ Introuvable.")
 
     t["status"] = "refused"
     t["used"] = True
+
     save()
 
     await ctx.send("❌ Refusé")
 
-# ---------------- RUN BOT ----------------
+@bot.event
+async def on_ready():
+    print(f"Connecté en tant que {bot.user}")
 
 bot.run(TOKEN)
