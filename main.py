@@ -45,7 +45,7 @@ data = load()
 
 # ---------------- BAN ----------------
 @bot.command()
-async def ban(ctx, user_id: int):
+async def banpers(ctx, user_id: int):
 
     if ctx.author.id not in ALLOWED_IDS:
         return await ctx.send("❌ Non autorisé.")
