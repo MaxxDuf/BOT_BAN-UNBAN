@@ -31,6 +31,9 @@ Thread(target=run_web, daemon=True).start()
 load_dotenv()
 TOKEN = os.getenv("DISCORD_TOKEN")
 
+if not TOKEN:
+    raise Exception("DISCORD_TOKEN manquant")
+
 intents = discord.Intents.all()
 bot = commands.Bot(command_prefix="!", intents=intents)
 
@@ -47,61 +50,40 @@ def save():
 
 data = load()
 
-# ---------------- DM SYSTEM ----------------
-async def send_dm(bot, ctx, user, text):
-    embed = discord.Embed(
-        title="🚫 Bannissement",
-        description=text,
-        color=discord.Color.red()
-    )
-
-    try:
-        await user.send(embed=embed)
-        print(f"[DM OK] {user.id}")
-        return True
-
-    except discord.Forbidden:
-        print(f"[DM BLOCKED] {user.id}")
-
-        ch = bot.get_channel(REPORT_LETTERS)
-        if ch:
-            await ch.send(
-                f"⚠️ MP BLOQUÉ pour {user.mention}\n\n{text}"
-            )
-
-        await ctx.send("⚠️ MP bloqué → message envoyé au staff")
-        return False
-
-    except Exception as e:
-        print("[DM ERROR]", e)
-        await ctx.send("❌ Erreur DM")
-        return False
-
-# ---------------- BAN COMMAND ----------------
+# ---------------- BAN ----------------
 @bot.command()
-async def ban2(ctx, user_id: int):
+async def ban(ctx, user_id: int):
 
     if ctx.author.id not in ALLOWED_IDS:
-        return await ctx.send("❌ Non autorisé")
+        return await ctx.send("❌ Non autorisé.")
 
-    user = await bot.fetch_user(user_id)
+    try:
+        user = await bot.fetch_user(user_id)
+    except:
+        return await ctx.send("❌ Utilisateur introuvable.")
 
-    await ctx.send("Raison du ban ?")
-    def check(m): return m.author == ctx.author and m.channel == ctx.channel
+    await ctx.send("📌 Raison du ban ?")
+
+    def check(m):
+        return m.author == ctx.author and m.channel == ctx.channel
+
     reason = (await bot.wait_for("message", check=check)).content
 
-    await ctx.send("Durée ? (7j / 12h)")
+    await ctx.send("⏳ Durée ? (ex: 7j / 12h)")
+
     duration = (await bot.wait_for("message", check=check)).content
 
     ticket_id = str(random.randint(10000, 99999))
 
     digits = "".join(filter(str.isdigit, duration))
-    value = int(digits) if digits else 1
+    time_value = int(digits) if digits else 1
 
-    if "h" in duration:
-        expires = datetime.utcnow() + timedelta(hours=value)
+    if "j" in duration:
+        expires_at = datetime.utcnow() + timedelta(days=time_value)
+    elif "h" in duration:
+        expires_at = datetime.utcnow() + timedelta(hours=time_value)
     else:
-        expires = datetime.utcnow() + timedelta(days=value)
+        expires_at = datetime.utcnow() + timedelta(days=1)
 
     try:
         member = await ctx.guild.fetch_member(user_id)
@@ -112,35 +94,40 @@ async def ban2(ctx, user_id: int):
     data[ticket_id] = {
         "user_id": user_id,
         "reason": reason,
-        "expires_at": expires.timestamp(),
+        "duration": duration,
+        "expires_at": expires_at.timestamp(),
         "status": "banned",
-        "thread_id": None,
         "used": False,
+        "thread_id": None,
         "letter": None
     }
 
     save()
 
-    await send_dm(
-        bot,
-        ctx,
-        user,
-        f"Raison: {reason}\nTicket: {ticket_id}\nCommande: !appeal {ticket_id}"
-    )
-
-    await ctx.send(f"✔ Ban effectué : {ticket_id}")
+    # ---------------- DM SAFE ----------------
+    try:
+        await user.send(
+            f"🚫 Tu as été banni\n"
+            f"📌 Raison : {reason}\n"
+            f"⏳ Durée : {duration}\n"
+            f"🎫 Ticket : {ticket_id}\n"
+            f"Commande : !appeal {ticket_id}"
+        )
+        await ctx.send(f"✔ Ban + MP envoyé. Ticket : {ticket_id}")
+    except discord.Forbidden:
+        await ctx.send(f"✔ Ban effectué MAIS MP bloqué. Ticket : {ticket_id}")
 
 # ---------------- APPEAL ----------------
 @bot.command()
 async def appeal(ctx, ticket_id: str):
 
     if ticket_id not in data:
-        return await ctx.send("❌ Ticket invalide")
+        return await ctx.send("❌ Ticket invalide.")
 
     t = data[ticket_id]
 
-    if t["thread_id"]:
-        return await ctx.send("❌ Déjà ouvert")
+    if t.get("thread_id"):
+        return await ctx.send("❌ Déjà ouvert.")
 
     thread = await ctx.channel.create_thread(
         name=f"appeal-{ticket_id}",
@@ -151,9 +138,9 @@ async def appeal(ctx, ticket_id: str):
     t["status"] = "writing"
     save()
 
-    await thread.send("✍️ Écris ta lettre ici")
+    await thread.send("✍️ Écris ta lettre ici.")
 
-# ---------------- MESSAGE HANDLER ----------------
+# ---------------- MESSAGE ----------------
 @bot.event
 async def on_message(message):
 
@@ -173,18 +160,21 @@ async def on_message(message):
         if t.get("used"):
             continue
 
-        t["letter"] = message.content
+        text = message.content
+
+        t["letter"] = text
         t["status"] = "pending_admin"
         t["used"] = True
         save()
 
         ch = bot.get_channel(REPORT_LETTERS)
+
         if ch:
             await ch.send(
-                f"📤 Lettre {ticket_id}\n\n{message.content[:1500]}"
+                f"📤 LETTRE\n🎫 {ticket_id}\n📝 {text[:1500]}"
             )
 
-        await message.channel.send("📤 Envoyé aux admins")
+        await message.channel.send("📤 Lettre envoyée aux admins.")
         break
 
 # ---------------- ADMIN ----------------
@@ -199,13 +189,18 @@ async def oui(ctx, ticket_id: str):
 
     t = data.get(ticket_id)
     if not t:
-        return await ctx.send("❌ Introuvable")
+        return await ctx.send("❌ Introuvable.")
 
     t["status"] = "accepted"
-    t["used"] = True
     save()
 
     await ctx.send("✔ Accepté")
+
+    if t.get("thread_id"):
+        ch = await bot.fetch_channel(t["thread_id"])
+        await ch.send("✅ Accepté")
+        await asyncio.sleep(5)
+        await ch.delete()
 
 @bot.command()
 async def non(ctx, ticket_id: str):
@@ -215,26 +210,31 @@ async def non(ctx, ticket_id: str):
 
     t = data.get(ticket_id)
     if not t:
-        return await ctx.send("❌ Introuvable")
+        return await ctx.send("❌ Introuvable.")
 
     t["status"] = "refused"
-    t["used"] = True
     save()
 
-    await ctx.send("❌ Refusé")
+    await ctx.send("❌ Refus")
 
-# ---------------- UNBAN SYSTEM ----------------
+    if t.get("thread_id"):
+        ch = await bot.fetch_channel(t["thread_id"])
+        await ch.send("❌ Refusé")
+        await asyncio.sleep(5)
+        await ch.delete()
+
+# ---------------- UNBAN AUTO ----------------
 @tasks.loop(minutes=1)
 async def unban_check():
 
     now = datetime.utcnow().timestamp()
 
-    for t in data.values():
+    for ticket_id, t in list(data.items()):
 
-        if t["status"] != "banned":
+        if t.get("status") != "banned":
             continue
 
-        if now < t["expires_at"]:
+        if now < t.get("expires_at", 0):
             continue
 
         try:
@@ -249,10 +249,9 @@ async def unban_check():
             t["status"] = "expired"
             save()
 
-        except Exception as e:
-            print("UNBAN ERROR:", e)
+        except:
+            pass
 
-# ---------------- READY ----------------
 @bot.event
 async def on_ready():
     unban_check.start()
