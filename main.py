@@ -6,7 +6,10 @@ from flask import Flask
 from threading import Thread
 from datetime import datetime, timedelta
 
+# ---------------- CONFIG ----------------
 ALLOWED_IDS = [1275136312935977013, 1272599276538691750]
+REPORT_LETTERS = 1513856898129068042
+DATA_FILE = "tickets.json"
 
 # ---------------- WEB ----------------
 app = Flask(__name__)
@@ -28,9 +31,7 @@ TOKEN = os.getenv("DISCORD_TOKEN")
 intents = discord.Intents.all()
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-REPORT_LETTERS = 1513856898129068042
-DATA_FILE = "tickets.json"
-
+# ---------------- DATA ----------------
 def load():
     if os.path.exists(DATA_FILE):
         with open(DATA_FILE, "r") as f:
@@ -45,10 +46,10 @@ data = load()
 
 # ---------------- BAN ----------------
 @bot.command()
-async def banpers(ctx, user_id: int):
+async def ban(ctx, user_id: int):
 
     if ctx.author.id not in ALLOWED_IDS:
-        return await ctx.send("❌ Non autorisé.")
+        return await ctx.send("❌ Non autorisé")
 
     user = await bot.fetch_user(user_id)
 
@@ -56,7 +57,7 @@ async def banpers(ctx, user_id: int):
     def check(m): return m.author == ctx.author and m.channel == ctx.channel
     reason = (await bot.wait_for("message", check=check)).content
 
-    await ctx.send("Durée ? (7j / 12h)")
+    await ctx.send("Durée ? (ex: 7j / 12h)")
     duration = (await bot.wait_for("message", check=check)).content
 
     ticket_id = str(random.randint(10000, 99999))
@@ -89,12 +90,12 @@ async def banpers(ctx, user_id: int):
 
     try:
         await user.send(
-            f"🚫 Ban\nRaison: {reason}\nTicket: {ticket_id}\n!appeal {ticket_id}"
+            f"🚫 Vous avez été banni\nRaison: {reason}\nTicket: {ticket_id}\n!appeal {ticket_id}"
         )
     except:
         pass
 
-    await ctx.send(f"Ban OK: {ticket_id}")
+    await ctx.send(f"✔ Ban effectué : {ticket_id}")
 
 # ---------------- APPEAL ----------------
 @bot.command()
@@ -105,21 +106,26 @@ async def appeal(ctx, ticket_id: str):
 
     t = data[ticket_id]
 
-    if t["thread_id"]:
+    if t["thread_id"] is not None:
         return await ctx.send("❌ Déjà ouvert")
 
-    thread = await ctx.channel.create_thread(
-        name=f"appeal-{ticket_id}",
-        auto_archive_duration=1440
-    )
+    try:
+        thread = await ctx.channel.create_thread(
+            name=f"appeal-{ticket_id}",
+            auto_archive_duration=1440
+        )
+    except:
+        return await ctx.send("❌ Impossible de créer le thread ici")
 
     t["thread_id"] = thread.id
     t["status"] = "writing"
+    t["used"] = False
+
     save()
 
-    await thread.send("✍️ Écris ta lettre ici.")
+    await thread.send("✍️ Écris ta lettre ici")
 
-# ---------------- MESSAGE ----------------
+# ---------------- MESSAGE HANDLER ----------------
 @bot.event
 async def on_message(message):
 
@@ -144,9 +150,12 @@ async def on_message(message):
         t["used"] = True
         save()
 
-        ch = bot.get_channel(REPORT_LETTERS)
-        if ch:
-            await ch.send(f"📤 Lettre {ticket_id}\n{message.content[:1500]}")
+        report = bot.get_channel(REPORT_LETTERS)
+
+        if report:
+            await report.send(
+                f"📤 LETTRE {ticket_id}\n{message.content[:1500]}"
+            )
 
         await message.channel.send("📤 Envoyé aux admins")
         break
@@ -201,16 +210,20 @@ async def unban_check():
         if now < t["expires_at"]:
             continue
 
-        user = await bot.fetch_user(t["user_id"])
+        try:
+            user = await bot.fetch_user(t["user_id"])
 
-        for g in bot.guilds:
-            try:
-                await g.unban(user)
-            except:
-                pass
+            for guild in bot.guilds:
+                try:
+                    await guild.unban(user)
+                except:
+                    pass
 
-        t["status"] = "expired"
-        save()
+            t["status"] = "expired"
+            save()
+
+        except:
+            pass
 
 @bot.event
 async def on_ready():
