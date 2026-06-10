@@ -5,39 +5,30 @@ import json
 import random
 import asyncio
 from dotenv import load_dotenv
-from flask import Flask
-from threading import Thread
 from datetime import datetime, timedelta
 
-# ---------------- CONFIG ----------------
-ALLOWED_IDS = [1275136312935977013, 1272599276538691750]
-REPORT_LETTERS = 1513856898129068042
-DATA_FILE = "tickets.json"
+# ---------------- ENV ----------------
 
-# ---------------- WEB SERVER (Render fix) ----------------
-app = Flask(__name__)
-
-@app.route("/")
-def home():
-    return "Bot is running"
-
-def run_web():
-    port = int(os.environ.get("PORT", 10000))
-    app.run(host="0.0.0.0", port=port)
-
-Thread(target=run_web, daemon=True).start()
-
-# ---------------- BOT ----------------
 load_dotenv()
 TOKEN = os.getenv("DISCORD_TOKEN")
 
 if not TOKEN:
     raise Exception("DISCORD_TOKEN manquant")
 
+# ---------------- BOT ----------------
+
 intents = discord.Intents.all()
 bot = commands.Bot(command_prefix="!", intents=intents)
 
+# ---------------- CONFIG ----------------
+
+ALLOWED_IDS = [1275136312935977013, 1272599276538691750]
+REPORT_LETTERS = 1513856898129068042
+
+DATA_FILE = "tickets.json"
+
 # ---------------- DATA ----------------
+
 def load():
     if os.path.exists(DATA_FILE):
         with open(DATA_FILE, "r") as f:
@@ -51,6 +42,7 @@ def save():
 data = load()
 
 # ---------------- BAN COMMAND ----------------
+
 @bot.command()
 async def ban2(ctx, user_id: int):
 
@@ -69,7 +61,7 @@ async def ban2(ctx, user_id: int):
 
     reason = (await bot.wait_for("message", check=check)).content
 
-    await ctx.send("⏳ Durée ? (ex: 7j / 12h)")
+    await ctx.send("⏳ Durée ? (ex: 7j, 12h)")
 
     duration = (await bot.wait_for("message", check=check)).content
 
@@ -85,13 +77,13 @@ async def ban2(ctx, user_id: int):
     else:
         expires_at = datetime.utcnow() + timedelta(days=1)
 
-    # BAN
     try:
         member = await ctx.guild.fetch_member(user_id)
         await member.ban(reason=reason)
     except:
         pass
 
+    # SAUVEGARDE CORRECTE
     data[ticket_id] = {
         "user_id": user_id,
         "reason": reason,
@@ -105,24 +97,25 @@ async def ban2(ctx, user_id: int):
 
     save()
 
-    # ---------------- MP SAFE ----------------
+    # ---------------- DM FIX ----------------
+
     try:
-        member = await ctx.guild.fetch_member(user_id)
-        await member.send(
-            f"🚫 Tu as été banni\n"
+        await user.send(
+            f"🚫 Vous avez été banni\n\n"
             f"📌 Raison: {reason}\n"
-            f"🎫 Ticket: {ticket_id}\n"
+            f"⏳ Durée: {duration}\n"
+            f"🎫 Ticket: {ticket_id}\n\n"
             f"Commande: !appeal {ticket_id}"
         )
-        await ctx.send(f"✔ Ban + MP envoyé (Ticket {ticket_id})")
-
     except discord.Forbidden:
-        await ctx.send(f"✔ Ban effectué MAIS MP bloqué (Ticket {ticket_id})")
-
+        await ctx.send("⚠️ MP bloqué pour cet utilisateur.")
     except:
-        await ctx.send(f"✔ Ban effectué (MP impossible) (Ticket {ticket_id})")
+        await ctx.send("⚠️ Impossible d'envoyer le MP.")
+
+    await ctx.send(f"✔ Ban effectué. Ticket : {ticket_id}")
 
 # ---------------- APPEAL ----------------
+
 @bot.command()
 async def appeal(ctx, ticket_id: str):
 
@@ -141,11 +134,14 @@ async def appeal(ctx, ticket_id: str):
 
     t["thread_id"] = thread.id
     t["status"] = "writing"
+    t["used"] = False
+
     save()
 
-    await thread.send("✍️ Écris ta lettre ici.")
+    await thread.send("✍️ Écris ta lettre ici. Elle sera envoyée aux admins.")
 
 # ---------------- MESSAGE HANDLER ----------------
+
 @bot.event
 async def on_message(message):
 
@@ -163,28 +159,31 @@ async def on_message(message):
             continue
 
         if t.get("used"):
-            return
+            continue
 
-        text = message.content
-
-        t["letter"] = text
+        t["letter"] = message.content
         t["status"] = "pending_admin"
         t["used"] = True
         save()
 
-        ch = bot.get_channel(REPORT_LETTERS)
+        report = bot.get_channel(REPORT_LETTERS)
 
-        if ch:
-            await ch.send(
-                f"📤 LETTRE\n🎫 {ticket_id}\n📝 {text[:1500]}"
+        if report:
+            await report.send(
+                f"📤 LETTRE\n"
+                f"🎫 {ticket_id}\n"
+                f"📝 {message.content[:1500]}"
             )
 
         await message.channel.send("📤 Lettre envoyée aux admins.")
         break
 
-# ---------------- ADMIN ----------------
+# ---------------- ADMIN CHECK ----------------
+
 def is_admin(ctx):
     return ctx.author.guild_permissions.administrator
+
+# ---------------- ACCEPT ----------------
 
 @bot.command()
 async def oui(ctx, ticket_id: str):
@@ -197,15 +196,18 @@ async def oui(ctx, ticket_id: str):
         return await ctx.send("❌ Introuvable.")
 
     t["status"] = "accepted"
+    t["used"] = True
     save()
 
-    await ctx.send("✔ Accepté")
+    await ctx.send("✔ Déban accepté")
 
     if t.get("thread_id"):
         ch = await bot.fetch_channel(t["thread_id"])
         await ch.send("✅ Accepté")
         await asyncio.sleep(5)
         await ch.delete()
+
+# ---------------- REFUSE ----------------
 
 @bot.command()
 async def non(ctx, ticket_id: str):
@@ -218,17 +220,19 @@ async def non(ctx, ticket_id: str):
         return await ctx.send("❌ Introuvable.")
 
     t["status"] = "refused"
+    t["used"] = True
     save()
 
     await ctx.send("❌ Refus")
 
     if t.get("thread_id"):
         ch = await bot.fetch_channel(t["thread_id"])
-        await ch.send("❌ Refus")
+        await ch.send("❌ Refusé")
         await asyncio.sleep(5)
         await ch.delete()
 
-# ---------------- UNBAN AUTO ----------------
+# ---------------- UNBAN SYSTEM ----------------
+
 @tasks.loop(minutes=1)
 async def unban_check():
 
@@ -263,4 +267,5 @@ async def on_ready():
     print("Bot prêt")
 
 # ---------------- RUN ----------------
+
 bot.run(TOKEN)
