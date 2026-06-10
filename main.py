@@ -9,6 +9,7 @@ from flask import Flask
 from threading import Thread
 from datetime import datetime, timedelta
 
+# ---------------- CONFIG ----------------
 ALLOWED_IDS = [1275136312935977013, 1272599276538691750]
 REPORT_LETTERS = 1513856898129068042
 DATA_FILE = "tickets.json"
@@ -46,34 +47,42 @@ def save():
 
 data = load()
 
-# ---------------- SAFE DM ----------------
-async def safe_dm(user, ctx, text):
+# ---------------- DM SYSTEM ----------------
+async def send_dm(bot, ctx, user, text):
+    embed = discord.Embed(
+        title="🚫 Bannissement",
+        description=text,
+        color=discord.Color.red()
+    )
+
     try:
-        await user.send(text)
-        print("✔ MP envoyé")
+        await user.send(embed=embed)
+        print(f"[DM OK] {user.id}")
         return True
 
     except discord.Forbidden:
-        print("❌ MP bloqués")
+        print(f"[DM BLOCKED] {user.id}")
 
         ch = bot.get_channel(REPORT_LETTERS)
         if ch:
-            await ch.send(f"⚠️ MP bloqué pour <@{user.id}>\n\n{text}")
+            await ch.send(
+                f"⚠️ MP BLOQUÉ pour {user.mention}\n\n{text}"
+            )
 
-        await ctx.send("⚠️ MP impossible (bloqué), message envoyé au staff.")
+        await ctx.send("⚠️ MP bloqué → message envoyé au staff")
         return False
 
     except Exception as e:
-        print("Erreur DM:", e)
-        await ctx.send("❌ Erreur MP")
+        print("[DM ERROR]", e)
+        await ctx.send("❌ Erreur DM")
         return False
 
-# ---------------- BAN ----------------
+# ---------------- BAN COMMAND ----------------
 @bot.command()
 async def ban2(ctx, user_id: int):
 
     if ctx.author.id not in ALLOWED_IDS:
-        return await ctx.send("❌ Non autorisé.")
+        return await ctx.send("❌ Non autorisé")
 
     user = await bot.fetch_user(user_id)
 
@@ -81,7 +90,7 @@ async def ban2(ctx, user_id: int):
     def check(m): return m.author == ctx.author and m.channel == ctx.channel
     reason = (await bot.wait_for("message", check=check)).content
 
-    await ctx.send("Durée ? (ex: 7j / 12h)")
+    await ctx.send("Durée ? (7j / 12h)")
     duration = (await bot.wait_for("message", check=check)).content
 
     ticket_id = str(random.randint(10000, 99999))
@@ -112,10 +121,11 @@ async def ban2(ctx, user_id: int):
 
     save()
 
-    await safe_dm(
-        user,
+    await send_dm(
+        bot,
         ctx,
-        f"🚫 Tu as été banni\n\nRaison: {reason}\nTicket: {ticket_id}\n!appeal {ticket_id}"
+        user,
+        f"Raison: {reason}\nTicket: {ticket_id}\nCommande: !appeal {ticket_id}"
     )
 
     await ctx.send(f"✔ Ban effectué : {ticket_id}")
@@ -141,7 +151,7 @@ async def appeal(ctx, ticket_id: str):
     t["status"] = "writing"
     save()
 
-    await thread.send("✍️ Écris ta lettre ici.")
+    await thread.send("✍️ Écris ta lettre ici")
 
 # ---------------- MESSAGE HANDLER ----------------
 @bot.event
@@ -171,7 +181,7 @@ async def on_message(message):
         ch = bot.get_channel(REPORT_LETTERS)
         if ch:
             await ch.send(
-                f"📤 LETTRE\nTicket: {ticket_id}\n\n{message.content[:1500]}"
+                f"📤 Lettre {ticket_id}\n\n{message.content[:1500]}"
             )
 
         await message.channel.send("📤 Envoyé aux admins")
@@ -240,7 +250,7 @@ async def unban_check():
             save()
 
         except Exception as e:
-            print("Unban error:", e)
+            print("UNBAN ERROR:", e)
 
 # ---------------- READY ----------------
 @bot.event
