@@ -133,16 +133,22 @@ async def appel(ctx, ticket_id: str):
     if t.get("thread_id") is not None:
         return await ctx.send("❌ Ticket déjà ouvert.")
 
+    # Message de base
+    base_msg = await ctx.send(
+        f"🎫 Ticket {ticket_id}\n\n"
+        "✍️ Un fil va être créé pour écrire ta lettre."
+    )
+
     try:
-        thread = await ctx.channel.create_thread(
+        # CRÉATION DU THREAD DEPUIS UN MESSAGE (BONNE MÉTHODE)
+        thread = await base_msg.create_thread(
             name=f"appeal-{ticket_id}",
             auto_archive_duration=1440
         )
+
     except Exception as e:
         print("Erreur création thread :", e)
-        return await ctx.send(
-            "❌ Impossible de créer le fil de discussion."
-        )
+        return await ctx.send("❌ Impossible de créer le fil de discussion.")
 
     t["thread_id"] = thread.id
     t["status"] = "writing"
