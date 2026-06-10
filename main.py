@@ -7,6 +7,9 @@ import asyncio
 from dotenv import load_dotenv
 from flask import Flask
 from threading import Thread
+from discord.ext import tasks
+from datetime import datetime, timedelta
+ALLOWED_IDS = [1275136312935977013, 1272599276538691750]
 
 # ---------------- WEB (Render) ----------------
 
@@ -58,39 +61,74 @@ def save():
 
 data = load()
 
-# ---------------- BAN TICKET ----------------
-
 @bot.command()
-async def banticket(ctx, user_id: int):
+async def ban(ctx, user_id: int):
 
-    if ctx.channel.id != ALLOWED_CHANNEL:
-        return await ctx.send("❌ Mauvais salon.")
+    if ctx.author.id not in ALLOWED_IDS:
+        return await ctx.send("❌ Non autorisé.")
+
+    try:
+        user = await bot.fetch_user(user_id)
+    except:
+        return await ctx.send("❌ Utilisateur introuvable.")
+
+    await ctx.send("📌 Quelle est la raison du ban ?")
+
+    def check(m):
+        return m.author == ctx.author and m.channel == ctx.channel
+
+    reason = (await bot.wait_for("message", check=check)).content
+
+    await ctx.send("⏳ Quelle est la durée ? (ex: 7j, 12h)")
+
+    duration = (await bot.wait_for("message", check=check)).content
 
     ticket_id = str(random.randint(10000, 99999))
 
-    data[ticket_id] = {
-        "user_id": user_id,
-        "thread_id": None,
-        "status": "new",
-        "used": False,
-        "letter": None
-    }
+    digits = "".join(filter(str.isdigit, duration))
+    time_value = int(digits) if digits else 1
+
+    if "j" in duration:
+        expires_at = datetime.utcnow() + timedelta(days=time_value)
+    elif "h" in duration:
+        expires_at = datetime.utcnow() + timedelta(hours=time_value)
+    else:
+        expires_at = datetime.utcnow() + timedelta(days=1)
+
+    try:
+        member = await ctx.guild.fetch_member(user_id)
+        await member.ban(reason=reason)
+    except:
+        pass
+
+   data[ticket_id] = {
+    "user_id": user_id,
+    "reason": reason,
+    "duration": duration,
+    "expires_at": expires_at.timestamp(),
+    "status": "banned",
+    "used": False,
+    "thread_id": None,
+    "letter": None
+}
 
     save()
 
-    report = bot.get_channel(REPORT_NEW_TICKET)
-
-    if report:
-        await report.send(
-            f"📩 **NOUVEAU TICKET**\n"
-            f"👤 ID : {user_id}\n"
-            f"🎫 Ticket : {ticket_id}"
+    try:
+        await user.send(
+            f"🚫 Vous avez été banni.\n\n"
+            f"📌 Raison : {reason}\n"
+            f"⏳ Durée : {duration}\n"
+            f"🎫 Code d'appel : {ticket_id}\n\n"
+            f"Serveur d'appel : https://discord.gg/NsbWYCD4\n"
+            f"Commande : !appeal {ticket_id}"
         )
+    except:
+        pass
 
-    await ctx.send(f"🎫 Ticket créé : {ticket_id}")
+    await ctx.send(f"✔ Ban effectué. Ticket : {ticket_id}")
 
 # ---------------- APPEAL ----------------
-
 @bot.command()
 async def appeal(ctx, ticket_id: str):
 
@@ -99,23 +137,23 @@ async def appeal(ctx, ticket_id: str):
 
     t = data[ticket_id]
 
-    if t["used"]:
-        return await ctx.send("❌ Code déjà utilisé.")
-
-    if t["thread_id"]:
+    if t.get("thread_id"):
         return await ctx.send("❌ Déjà ouvert.")
 
     thread = await ctx.channel.create_thread(
         name=f"appeal-{ticket_id}",
-        type=discord.ChannelType.public_thread
+        auto_archive_duration=1440
     )
 
     t["thread_id"] = thread.id
     t["status"] = "writing"
+    t["used"] = False
+
     save()
 
-    await thread.send("✍️ Écris ta lettre ici. Elle sera envoyée aux admins automatiquement.")
-
+    await thread.send(
+        "✍️ Écris ta lettre ici.\nElle sera envoyée automatiquement aux admins."
+    )
 # ---------------- MESSAGE HANDLER ----------------
 
 @bot.event
@@ -126,32 +164,35 @@ async def on_message(message):
     if message.author.bot:
         return
 
-    for ticket_id, t in data.items():
+    for ticket_id, t in list(data.items()):
 
-        if t.get("thread_id") == message.channel.id and t["status"] == "writing":
+        if t.get("thread_id") != message.channel.id:
+            continue
 
-            if t["used"]:
-                return
+        if t.get("status") != "writing":
+            continue
 
-            text = message.content
+        if t.get("used"):
+            continue
 
-            t["letter"] = text
-            t["status"] = "pending_admin"
-            save()
+        text = message.content
 
-            report = bot.get_channel(REPORT_LETTERS)
+        t["letter"] = text
+        t["status"] = "pending_admin"
+        t["used"] = True
+        save()
 
-            if report:
-                await report.send(
-                    f"📤 LETTRE À TRAITER\n"
-                    f"🎫 ID: {ticket_id}\n"
-                    f"📝 {text[:1500]}"
-                )
+        report = bot.get_channel(REPORT_LETTERS)
 
-            await message.channel.send("📤 Lettre envoyée aux admins.")
+        if report:
+            await report.send(
+                f"📤 LETTRE À TRAITER\n"
+                f"🎫 ID: {ticket_id}\n"
+                f"📝 {text[:1500]}"
+            )
 
-            break
-
+        await message.channel.send("📤 Lettre envoyée aux admins.")
+        break
 # ---------------- ADMIN CHECK ----------------
 
 def is_admin(ctx):
@@ -205,6 +246,38 @@ async def non(ctx, ticket_id: str):
         await asyncio.sleep(10)
         await ch.delete()
 
+@tasks.loop(minutes=1)
+async def unban_check():
+    now = datetime.utcnow().timestamp()
+
+    for ticket_id, t in list(data.items()):
+
+        if t.get("status") != "banned":
+            continue
+
+        if now < t.get("expires_at", 0):
+            continue
+
+        try:
+            user = await bot.fetch_user(t["user_id"])
+
+            for guild in bot.guilds:
+                try:
+                    await guild.unban(user)
+                except:
+                    pass
+
+            t["status"] = "expired"
+            save()
+
+        except:
+            pass
+
+
+@bot.event
+async def on_ready():
+    unban_check.start()
+    print("Bot prêt")
 # ---------------- RUN ----------------
 
 bot.run(TOKEN)
