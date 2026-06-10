@@ -14,7 +14,7 @@ ALLOWED_IDS = [1275136312935977013, 1272599276538691750]
 REPORT_LETTERS = 1513856898129068042
 DATA_FILE = "tickets.json"
 
-# ---------------- WEB ----------------
+# ---------------- WEB SERVER (Render fix) ----------------
 app = Flask(__name__)
 
 @app.route("/")
@@ -50,9 +50,9 @@ def save():
 
 data = load()
 
-# ---------------- BAN ----------------
+# ---------------- BAN COMMAND ----------------
 @bot.command()
-async def ban2(ctx, user_id: int):
+async def ban(ctx, user_id: int):
 
     if ctx.author.id not in ALLOWED_IDS:
         return await ctx.send("❌ Non autorisé.")
@@ -85,6 +85,7 @@ async def ban2(ctx, user_id: int):
     else:
         expires_at = datetime.utcnow() + timedelta(days=1)
 
+    # BAN
     try:
         member = await ctx.guild.fetch_member(user_id)
         await member.ban(reason=reason)
@@ -104,40 +105,22 @@ async def ban2(ctx, user_id: int):
 
     save()
 
-# ---------------- DM FIX (IMPORTANT) ----------------
-
-dm_sent = False
-
-try:
-    member = ctx.guild.get_member(user_id)
-
-    if member is None:
+    # ---------------- MP SAFE ----------------
+    try:
         member = await ctx.guild.fetch_member(user_id)
+        await member.send(
+            f"🚫 Tu as été banni\n"
+            f"📌 Raison: {reason}\n"
+            f"🎫 Ticket: {ticket_id}\n"
+            f"Commande: !appeal {ticket_id}"
+        )
+        await ctx.send(f"✔ Ban + MP envoyé (Ticket {ticket_id})")
 
-    await member.send(
-        f"🚫 Tu as été banni\n"
-        f"📌 Raison : {reason}\n"
-        f"⏳ Durée : {duration}\n"
-        f"🎫 Ticket : {ticket_id}\n"
-        f"Commande : !appeal {ticket_id}"
-    )
+    except discord.Forbidden:
+        await ctx.send(f"✔ Ban effectué MAIS MP bloqué (Ticket {ticket_id})")
 
-    dm_sent = True
-
-except discord.Forbidden:
-    dm_sent = False
-
-except Exception:
-    dm_sent = False
-
-# ---------------- MESSAGE FINAL ----------------
-
-if dm_sent:
-    await ctx.send(f"✔ Ban + MP envoyé. Ticket : {ticket_id}")
-else:
-    await ctx.send(
-        f"✔ Ban effectué MAIS MP impossible (bloqué par l’utilisateur). Ticket : {ticket_id}"
-    )
+    except:
+        await ctx.send(f"✔ Ban effectué (MP impossible) (Ticket {ticket_id})")
 
 # ---------------- APPEAL ----------------
 @bot.command()
@@ -162,7 +145,7 @@ async def appeal(ctx, ticket_id: str):
 
     await thread.send("✍️ Écris ta lettre ici.")
 
-# ---------------- MESSAGE ----------------
+# ---------------- MESSAGE HANDLER ----------------
 @bot.event
 async def on_message(message):
 
@@ -180,7 +163,7 @@ async def on_message(message):
             continue
 
         if t.get("used"):
-            continue
+            return
 
         text = message.content
 
@@ -241,7 +224,7 @@ async def non(ctx, ticket_id: str):
 
     if t.get("thread_id"):
         ch = await bot.fetch_channel(t["thread_id"])
-        await ch.send("❌ Refusé")
+        await ch.send("❌ Refus")
         await asyncio.sleep(5)
         await ch.delete()
 
